@@ -1,0 +1,255 @@
+---
+title: "Project 3: Olympic Games Performance Analysis"
+author: ""
+format: pdf
+editor: visual
+---
+
+# 1. Introduction
+
+This report will examine patterns pertaining to gender and sports within the various countries that partake in the Olympics. It examines variations over time, presenting the information visually and discusses elements that impact performance.
+
+**Research Questions**
+
+1.  How do the top 10 countries compare in terms of total awarded Olympic medals?
+
+2.  How do genders influence the total amount of medals a country receives per participant?
+
+3.  How is the relationship compared between Olympic participation and the number of medals won by athletes across all the countries?
+
+4.  What are the top 5 Olympic sports with the highest number of medals won and how do these sports compare in terms of medal type, such as, gold, silver and bronze?
+
+5.  What is the proportion of the Summer and Winter Olympics? Where were these games hosted and how many games were hosted by each country in the different seasons?
+
+# 2. Data Cleaning and Preparation
+
+The data sets olympic_athletes, olympic_hosts, olympic_medals and olympic_results was loaded into R. In the initial inspection, the files are separate datasets. In order to read it clearly the datasets with the most crucial information was joined. Host country was called game_slug and in the other datasets it was called slug_game. To match it, it was changed from game_slug to slug_game. It was then filtered and cleaned to not have any NA values in the column. The medals and host_country datasets were joined using a left_join. It was joined by the primary key slug_game.
+
+For each graph there was a separate data cleaning and tidying for its specifications:
+
+In graph 1: It uses the medals dataset. It removes any rows with NA values in the medal_type columns. The data is then grouped by country_name. A summarised table of each country by rows is created and the total_medals won by that country. Total_medals is arranged in descending order and then top_n takes the top 10 countries.
+
+In graph 2: It uses the medals dataset, it filters the medal_type so that it only contains gold, silver and bronze medals. It is then grouped by country_name and event_gender. A summarised table is then created that only contains the number of total medals. The medals are then arranged in descending order and it only uses the top 10 rows.
+
+In graph 3: It uses the athletes dataset. It filters the NA values in athlete_medals and games_participations. It then extracts the number of medals using regular expression. It filters out the rows that have 0 or less medals. It is grouped by games_participations and summarised into a table where the sum of the athlete_count_medals is calculated. It is arrange by games_participations.
+
+In graph 4: This uses the medals dataset. It filters out the rows with NA values in discipline_title and medal_type. A table is created with summarised data of the count of medals. It then only takes the top 5 medals in each category.
+
+In graph 5: It uses the host_country dataset. It is grouped by game_season and it then counts how many seasons there are in each category.
+
+In graph 6: This uses the dataset host_country. It groups game_location and game_season and it is summarised into a table where it counts the number of games.
+
+```{r, echo=FALSE, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(readr)
+library(ggplot2)
+library(scales)
+library(ggrepel)
+library(patchwork)
+```
+
+```{r, echo=FALSE, include=FALSE}
+athletes <- read_csv("olympic_athletes.csv", show_col_types = FALSE)
+host_country <- read_csv("olympic_hosts.csv", show_col_types = FALSE)
+medals <- read_csv("olympic_medals.csv", show_col_types = FALSE)
+results <- read_csv("olympic_results.csv", show_col_types = FALSE)
+```
+
+```{r, echo=FALSE, include=FALSE}
+host_country <- rename(host_country, slug_game = game_slug)
+
+host_cleaned <- host_country |> 
+  filter(!is.na(slug_game)) |>
+  distinct()
+
+merged_host_medals_data <- host_cleaned |> # Joining medals and host_country data by primary key slug_game
+  left_join(medals, by = c("slug_game"))
+```
+
+\newpage
+
+# 3. Exploratory Data Analysis
+
+## 3.1 Summary Statistic
+
+The key variables in the dataset is the participation of the athletes in the Olympics as this pertains to the research question. It will provide the count, mean, median, minimum, maximum and standard deviation of the ages.
+
+```{r, echo=FALSE, include=FALSE}
+athlete_participation <- athletes |>
+  mutate(games_participations = na_if(games_participations, 0)) |> 
+  summarise(
+    count = n(),
+    mean = mean(games_participations, na.rm = TRUE),
+    median = median(games_participations, na.rm = TRUE),
+    min = min(games_participations, na.rm = TRUE),
+    max = max(games_participations, na.rm = TRUE),
+    sd = sd(games_participations, na.rm = TRUE)
+)
+```
+
+| Count | Mean    | Median | Min | Max | SD        |
+|-------|---------|--------|-----|-----|-----------|
+| 75904 | 1.53632 | 1      | 1   | 10  | 0.8542868 |
+
+: Olympic Participation for Athletes
+
+\newpage
+
+## 3.2 Visualisations
+
+```{r, echo=FALSE}
+medals_cleaned <- medals |>
+  filter(!is.na(medal_type))
+
+country_medals <- medals_cleaned |>
+  group_by(country_name) |>
+  summarise(total_medals = n()) |>
+  arrange(desc(total_medals)) |>
+  top_n(10, total_medals) # Top 10
+
+ggplot(country_medals, aes(x = reorder(country_name, total_medals), y = total_medals, fill = country_name)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  coord_flip() +
+  labs(
+    title = "Total Olympic Medals by the Top 10 Countries",
+    x = "Country",
+    y = "Total Medals",
+    fill = "Country") +
+  theme_minimal() 
+```
+
+This bar graph shows the total Olympic medals won by the top 10 countries. The results show that the United States of America has won the most medals out of all of the other countries. The difference between the first and second place is greater than 1000 medals. The country with the least amount of medals in the top 10 is Canada.
+
+```{r, echo=FALSE}
+country_gender_medals <- medals |>
+  filter(medal_type %in% c("GOLD", "SILVER", "BRONZE")) |>
+  group_by(country_name, event_gender) |>
+  summarise(total_medals = n(), .groups = 'drop')
+
+top_ten_countries <- country_gender_medals |>
+  group_by(country_name) |>
+  summarise(total_medals = sum(total_medals)) |>
+  arrange(desc(total_medals)) |>
+  head(10) |>
+  pull(country_name)
+
+top_medals <- country_gender_medals |>
+  filter(country_name %in% top_ten_countries)
+
+ggplot(top_medals, aes(x = country_name, y = event_gender)) +
+  geom_tile(aes(fill = total_medals)) +
+  scale_fill_gradient(low = "yellow", high = "red") +
+  labs(title = "Top 10 Medal Winners by Gender and Country",
+       x = "Country",
+       y = "Gender") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Changes the x-axis to be 45 degrees
+```
+
+This heat map shows the comparison between genders to identify who received the most medal types by country. The results show that men in the United States of America received the most medals out of all the other categories. Women from the United States of America received the most number of medals in their category. Women from the United States of America and the men from France, Germany, Great Britain and the Soviet Union received similar if not the same number of medals as each other. Mixed genders received the same or similar amount of medals across all the countries stated.
+
+```{r, echo=FALSE}
+medals_participation <- athletes |>
+  filter(!is.na(athlete_medals), 
+         !is.na(games_participations)) |>
+  mutate(athlete_count_medals = str_extract_all(athlete_medals, "\\d+") |> # Extracts sequence of digits
+  lapply(as.numeric) |>
+  sapply(sum, na.rm = TRUE)) |>
+  filter(athlete_count_medals > 0)
+
+sum_medals <- medals_participation |>
+  group_by(games_participations) |>
+  summarise(total_medals = sum(athlete_count_medals)) |>
+  arrange(games_participations)
+
+ggplot(sum_medals, aes(x = games_participations, y = total_medals)) +
+  geom_line(color = "blue", linewidth = 0.8) +
+  geom_point(color = "red", size = 2) +
+  labs(title = "Total Medals Won vs. Number of Olympic Participations",
+       x = "Number of Olympic Participations",
+       y = "Total Number of Medals Won") +
+  theme_minimal()
+```
+
+This line graph shows the correlation between the number of Olympic participations and the number of medals won by athletes. The results show that the more the athletes participated the fewer medals they received. It shows that if an athlete has participated more than five times the chances of winning a medal decreases to almost zero. Many athletes competing for their first or second time received a larger number of medals.
+
+```{r, echo=FALSE}
+medals_top <- medals |>
+  filter(!is.na(discipline_title),
+         !is.na(medal_type)) |>
+  group_by(discipline_title, medal_type) |>
+  summarise(medal_count = n(), .groups = 'drop') |>
+  group_by(medal_type) |>
+  slice_max(medal_count, n = 5) 
+
+ggplot(medals_top, aes(x = reorder(discipline_title, -medal_count), y = medal_count, fill = medal_type)) + # Reverse order of reorder, highest medal counts shown 1st
+  geom_bar(stat = "identity") +
+  labs(title = "Top 5 Sports by Number of Medals Won",
+       x = "Sport",
+       y = "Number of Medals") +
+  facet_grid(. ~ medal_type, scale = "free") +
+  scale_fill_manual(values = c("GOLD" = "yellow", "SILVER" = "grey", "BRONZE" = "darkorange")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+This bar graphs indicates the comparison of the top 5 Olympic sports by number of medals won by athletes. The results show that the most gold medals are won by the athletics category. The medals won for gold and silver show the same sports categories. The top boxers have won bronze medals, but no gold or silver medals. Many athletes do not win bronze medals in artistic gymnatics. The total number of medals won for athletics is equally divided betweeen gold, silver and bronze.
+
+```{r, echo=FALSE}
+season <- host_country |>
+  group_by(game_season) |>
+  summarise(count = n())
+
+ggplot(season, aes(x = "", y = count, fill = game_season)) +
+  geom_bar(stat = "identity") +
+  coord_polar(theta = "y") + # Changes it to a pie chart
+  theme_void() +
+  labs(title = "Proportion of Summer and Winter Olympic Games") +
+  scale_fill_manual(values = c("Summer" = "gold", "Winter" = "lightblue")) +
+  theme_minimal()
+```
+
+This pie chart shows the comparative proportion between the summer and winter Olympic Games. The results show that more summer Olympic Games are held rather than winter Olympic Games. The difference is marginal, yet noticeable.
+
+\newpage
+
+```{r, echo=FALSE}
+location <- host_country |>
+  group_by(game_location, game_season) |>
+  summarise(count = n(), .groups = "drop") # Count number of rows
+
+ggplot(location, aes(x = game_location, y = count, fill = game_season)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Olympic Games, Seasons by Country",
+       x = "Host Country",
+       y = "Number of Games") +
+  scale_fill_manual(values = c("Summer" = "gold", "Winter" = "lightblue")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+This bar graph shows the Olympic Games, seasons by country. The results show that the United States of America has held the most summer and winter Olympic Games. Certain countries have only held the summer Olympics and have not held any Winter Olympics. The opposite also applies. France has held the second most summer and winter Olympic Games.
+
+\newpage
+
+# 4. Reporting
+
+## 4.1 Key Insights
+
+The analysis for the total Olympic medals won by the top 10 countries shows that the United States of America has won the most medals out of all of the other countries. The difference between the United States of America and the country that won the second most medals is large. The analysis could be investigated into why there is such a large gap between the country that wins the most medals and the rest of the other countries. The factors contributing to the difference could be land mass and therefore the United States of America have more people and a variety of people that compete in the Olympics. The limitation of the analysis is the factors contributing to the amount of medals countries win.
+
+The analysis for the comparison between genders to identify who receives the most medal types by country shows that men from the United States of America receive the highest amount of medals out of all the categories and countries. Women from the United States of America receive the highest amount of medals in their category. These results show why the United States of America win the most medals out of all the countries. The limitations for this analysis is the factors contributing to why mixed partners do not win as many as when they participate on their own.
+
+The analysis for the correlation between the number of Olympic participations and the number of medals won shows that when participation increases less medals are won. The limitations of this analysis would be figuring out why athletes win less medals the more they compete. A factor could be, as athletes age they win less medals.
+
+The analysis for the comparison of the top 5 Olympic sports by number of medals won by athletes shows that athletics is the most won medal type across gold, silver and bronze. The analysis could investigate as to why athletics contributes the most won medals across medal types. Factors contributing to this could be that athletics has a large amount of events within which athletes can win. Limitations is not knowing the age of the athletes and the country the athletes come from.
+
+The analysis for the comparison of the proportions for the summer and winter Olympic Games shows that winter Olympic Games are held less than the summer Olympic Games. The limitations is not knowing what factors contribute to this.
+
+The analysis for the Olympic Games, seasons by country shows that the United States of America has held the most summer and winter Olympic Games. The analysis could investigate if this correlates to the United States of America winning the most medals. The limitation is not knowing the data as to why certain countries hold the Summer Olympic Games, the Winter Olympic Games or both. It could pertain to infrastructure.
+
+## 4.2 Summary
+
+The Olympic Games have changed over the years, many factors contribute to the success of the Olympics. The distribution of medals has factors that could contribute to a person winning, such as the country they come from as some countries dominate certain sports. There are a variety of factors as to why certain countries do not host the Olympics such as infrastructure, economic influence and political stability.
